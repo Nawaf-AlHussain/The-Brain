@@ -16,7 +16,12 @@ httpx
 numpy
 
 # RAG core (LightRAG)
-lightrag-hku
+# NOTE: openai and tiktoken are required at import time (lightrag.llm.openai,
+# tokenization). lightrag-hku declares them optional/pipmaster-managed, but in
+# read-only serverless environments they MUST be installed explicitly.
+lightrag-hku==1.5.7
+openai>=1.50.0
+tiktoken>=0.7.0
 
 # Knowledge graph DB
 neo4j
