@@ -32,7 +32,8 @@ The repository therefore ships a slim `requirements.txt` (serverless) and a `req
 
 ## Step 1 — Create the backing cloud services
 
-### Neo4j Aura DB (required — knowledge graph storage)
+### Neo4j Aura DB (optional — persistent knowledge graph)
+If you skip this step the app runs in **demo mode**: an in-memory graph that works fully (dashboard, query, graph explorer, text ingestion) but is wiped whenever Vercel recycles the instance. Add Aura later by setting `NEO4J_*` env vars and redeploying — no code changes needed.
 1. Go to <https://neo4j.com/cloud/aura/> and create a **free** instance (Neo4j 5).
 2. Download/save the credentials. You get a URI like `neo4j+s://xxxxxxxx.databases.neo4j.io`.
 

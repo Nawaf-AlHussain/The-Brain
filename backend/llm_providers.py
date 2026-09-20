@@ -104,7 +104,12 @@ class OllamaProvider:
 
 
 class OpenAIProvider:
-    """Supports standard OpenAI, as well as vLLM, llama.cpp, Groq, etc. via custom base_url"""
+    """Supports standard OpenAI, as well as vLLM, llama.cpp, Groq, etc. via custom base_url.
+
+    Embeddings can optionally target a different OpenAI-compatible endpoint
+    (embedding_base_url / embedding_api_key) — useful for mixing providers,
+    e.g. Groq for chat + Gemini/OpenAI for embeddings.
+    """
 
     def __init__(
         self,
@@ -114,6 +119,8 @@ class OpenAIProvider:
         vision_model: str,
         embed_model: str,
         timeout: int,
+        embedding_api_key: str = "",
+        embedding_base_url: str = "",
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -121,6 +128,8 @@ class OpenAIProvider:
         self.vision_model = vision_model
         self.embed_model = embed_model
         self.timeout = timeout
+        self.embedding_api_key = embedding_api_key or api_key
+        self.embedding_base_url = embedding_base_url or base_url
 
     # LLM model
     async def llm(
@@ -197,12 +206,12 @@ class OpenAIProvider:
     # Embedding model
     async def embed(self, texts: list[str]) -> np.ndarray:
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self.embedding_api_key}",
             "Content-Type": "application/json",
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
-                f"{self.base_url.rstrip('/')}/embeddings",
+                f"{self.embedding_base_url.rstrip('/')}/embeddings",
                 headers=headers,
                 json={"model": self.embed_model, "input": texts},
             )

@@ -40,6 +40,8 @@ document_reranker = DocumentReranker(
 class AppState:
     def __init__(self):
         self.rag = None
+        # "neo4j" (persistent) or "memory" (in-memory NetworkX demo mode)
+        self.graph_backend = "neo4j"
 
 
 state = AppState()

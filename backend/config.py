@@ -25,6 +25,11 @@ RERANKER_BASE_URL = os.getenv("RERANKER_BASE_URL", "")
 # the LLM provider. Falls back to OPENAI_API_KEY when not set.
 RERANKER_API_KEY = os.getenv("RERANKER_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
 
+# Optional separate embedding endpoint — lets you mix providers, e.g. Groq for
+# LLM + Gemini/OpenAI for embeddings. Falls back to the OpenAI settings.
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "") or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+
 # External API keys
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-no-key-required")
 
@@ -46,7 +51,9 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "4096"))
 MAX_EMBED_TOKENS = int(os.getenv("MAX_EMBED_TOKENS", "8192"))
 
 # Neo4j
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+# Leave NEO4J_URI empty (or unset on serverless) to run without a graph DB —
+# the app falls back to in-memory NetworkX storage (demo mode, non-persistent).
+NEO4J_URI = os.getenv("NEO4J_URI", "" if IS_SERVERLESS else "bolt://localhost:7687")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")

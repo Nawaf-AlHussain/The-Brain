@@ -2,6 +2,7 @@ import os
 import time
 import shutil
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,10 @@ from backend.dependencies import (
 )
 from backend.jobs import Job, JobLogHandler
 from backend.config import *
+
+# LightRAG storage backends
+GRAPH_STORAGE_NEO4J = "Neo4JStorage"
+GRAPH_STORAGE_MEMORY = "NetworkXStorage"  # in-memory fallback (demo mode)
 
 # Import our new API routers
 from backend.routers import documents, graph, system
@@ -134,7 +139,16 @@ async def lifespan(app: FastAPI):
     os.environ["LLM_TIMEOUT"] = str(LLM_TIMEOUT)
     os.environ["EMBEDDING_TIMEOUT"] = str(EMBEDDING_TIMEOUT)
 
-    neo4j_manager.connect()
+    # Graph backend: Neo4j when configured, in-memory fallback otherwise.
+    if NEO4J_URI:
+        neo4j_manager.connect()
+        state.graph_backend = "neo4j"
+    else:
+        state.graph_backend = "memory"
+        base_logger.info(
+            "NEO4J_URI not configured — running in demo mode with in-memory "
+            "graph storage (non-persistent). Set NEO4J_* env vars for durability."
+        )
 
     # Full RAG (RAGAnything + MinerU parsing + queue worker) requires the heavy
     # dependencies and a persistent filesystem. On serverless platforms we run
@@ -198,7 +212,14 @@ async def lifespan(app: FastAPI):
     ProviderClass = selected_engine["class"]
     specific_kwargs = selected_engine["kwargs"]
 
-    # Instantiate the provider
+    # Instantiate the provider (OpenAI-compatible providers may target a
+    # separate embedding endpoint)
+    if ProviderClass is OpenAIProvider:
+        specific_kwargs = {
+            **specific_kwargs,
+            "embedding_api_key": EMBEDDING_API_KEY,
+            "embedding_base_url": EMBEDDING_BASE_URL,
+        }
     provider = ProviderClass(**common_kwargs, **specific_kwargs)
 
     base_logger.info(
@@ -221,23 +242,43 @@ async def lifespan(app: FastAPI):
                 "falling back to NanoVectorDBStorage"
             )
 
-    lightrag_instance = LightRAG(
-        working_dir=WORKING_DIR,
-        graph_storage="Neo4JStorage",
-        vector_storage=vector_storage,
-        llm_model_func=provider.llm,
-        llm_model_max_async=LLM_MAX_ASYNC,
-        chunk_token_size=CHUNK_SIZE,
-        chunk_overlap_token_size=CHUNK_OVERLAP,
-        embedding_func=EmbeddingFunc(
-            embedding_dim=EMBEDDING_DIM,
-            max_token_size=MAX_EMBED_TOKENS,
-            func=provider.embed,
-        ),
-        embedding_func_max_async=EMBEDDING_MAX_ASYNC,
-        rerank_model_func=document_reranker.rerank,
+    def build_lightrag(graph_storage: str) -> LightRAG:
+        return LightRAG(
+            working_dir=WORKING_DIR,
+            graph_storage=graph_storage,
+            vector_storage=vector_storage,
+            llm_model_func=provider.llm,
+            llm_model_max_async=LLM_MAX_ASYNC,
+            chunk_token_size=CHUNK_SIZE,
+            chunk_overlap_token_size=CHUNK_OVERLAP,
+            embedding_func=EmbeddingFunc(
+                embedding_dim=EMBEDDING_DIM,
+                max_token_size=MAX_EMBED_TOKENS,
+                func=provider.embed,
+            ),
+            embedding_func_max_async=EMBEDDING_MAX_ASYNC,
+            rerank_model_func=document_reranker.rerank,
+        )
+
+    lightrag_instance = build_lightrag(
+        GRAPH_STORAGE_NEO4J if state.graph_backend == "neo4j" else GRAPH_STORAGE_MEMORY
     )
-    await lightrag_instance.initialize_storages()
+    try:
+        await lightrag_instance.initialize_storages()
+    except Exception as exc:
+        if state.graph_backend == "neo4j":
+            base_logger.warning(
+                "Neo4j unavailable (%s) — falling back to in-memory NetworkX "
+                "graph storage (demo mode, non-persistent)",
+                exc,
+            )
+            state.graph_backend = "memory"
+            with contextlib.suppress(Exception):
+                await lightrag_instance.finalize_storages()
+            lightrag_instance = build_lightrag(GRAPH_STORAGE_MEMORY)
+            await lightrag_instance.initialize_storages()
+        else:
+            raise
 
     if use_full_rag:
         state.rag = RAGAnything(
