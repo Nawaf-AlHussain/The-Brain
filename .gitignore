@@ -1,12 +1,26 @@
-# Ignore local test data 
-data/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
 
-# Ignore Python compiled bytecode (this is what that new folder is)
-**/__pycache__/
-*.pyc
-
-# Ignore local models/caches
-.cache/
-
-# Ignore .env
+# Environment / secrets
 .env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# Runtime data (local runs)
+rag_storage/
+uploads/
+output/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

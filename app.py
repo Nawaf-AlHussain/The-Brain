@@ -11,10 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-# LightRAG & RAG-Anything
+# LightRAG (required — lightweight)
 from lightrag import LightRAG
 from lightrag.utils import EmbeddingFunc
-from raganything import RAGAnything, RAGAnythingConfig
+
+# RAG-Anything (heavy: pulls MinerU/torch — optional, skipped in serverless/lite mode)
+from backend.runtime import RAGANYTHING_AVAILABLE
+if RAGANYTHING_AVAILABLE:
+    from raganything import RAGAnything, RAGAnythingConfig
 
 # Local backend modules
 from backend.llm_providers import OllamaProvider, OpenAIProvider
@@ -115,7 +119,6 @@ async def _queue_worker():
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO)
     logging.getLogger().setLevel(logging.INFO)
-    base_logger.info("Initialising RAGAnything …")
 
     for d in (WORKING_DIR, UPLOAD_DIR, OUTPUT_DIR):
         Path(d).mkdir(parents=True, exist_ok=True)
@@ -131,15 +134,31 @@ async def lifespan(app: FastAPI):
     os.environ["LLM_TIMEOUT"] = str(LLM_TIMEOUT)
     os.environ["EMBEDDING_TIMEOUT"] = str(EMBEDDING_TIMEOUT)
 
-    config = RAGAnythingConfig(
-        working_dir=WORKING_DIR,
-        parser=PARSER,
-        parse_method="auto",
-        parser_output_dir=OUTPUT_DIR,
-        enable_image_processing=bool(VISION_MODEL),
-        enable_table_processing=True,
-        enable_equation_processing=True,
-    )
+    neo4j_manager.connect()
+
+    # Full RAG (RAGAnything + MinerU parsing + queue worker) requires the heavy
+    # dependencies and a persistent filesystem. On serverless platforms we run
+    # in "lite" mode: LightRAG directly, text-only ingestion, no queue worker.
+    use_full_rag = RAGANYTHING_AVAILABLE and not IS_SERVERLESS
+
+    if use_full_rag:
+        config = RAGAnythingConfig(
+            working_dir=WORKING_DIR,
+            parser=PARSER,
+            parse_method="auto",
+            parser_output_dir=OUTPUT_DIR,
+            enable_image_processing=bool(VISION_MODEL),
+            enable_table_processing=True,
+            enable_equation_processing=True,
+        )
+    else:
+        config = None
+        base_logger.info(
+            "Lite mode active (serverless=%s, raganything_installed=%s): "
+            "RAGAnything/MinerU disabled, text-only ingestion.",
+            IS_SERVERLESS,
+            RAGANYTHING_AVAILABLE,
+        )
 
     # LLM engine routing
     # Settings for every provider
@@ -187,9 +206,25 @@ async def lifespan(app: FastAPI):
         f"at {specific_kwargs.get('base_url')}"
     )
 
+    # Optional persistent vector storage (e.g. Qdrant Cloud on serverless).
+    # Falls back to NanoVectorDB files inside WORKING_DIR when not configured.
+    vector_storage = "NanoVectorDBStorage"
+    if QDRANT_URL:
+        try:
+            import qdrant_client  # noqa: F401
+
+            vector_storage = "QdrantVectorDBStorage"
+            base_logger.info(f"Using Qdrant vector storage at {QDRANT_URL}")
+        except ImportError:
+            base_logger.warning(
+                "QDRANT_URL is set but qdrant-client is not installed — "
+                "falling back to NanoVectorDBStorage"
+            )
+
     lightrag_instance = LightRAG(
         working_dir=WORKING_DIR,
         graph_storage="Neo4JStorage",
+        vector_storage=vector_storage,
         llm_model_func=provider.llm,
         llm_model_max_async=LLM_MAX_ASYNC,
         chunk_token_size=CHUNK_SIZE,
@@ -204,24 +239,28 @@ async def lifespan(app: FastAPI):
     )
     await lightrag_instance.initialize_storages()
 
-    state.rag = RAGAnything(
-        config=config,
-        lightrag=lightrag_instance,
-        llm_model_func=provider.llm,
-        vision_model_func=provider.vision if VISION_MODEL else None,
-        embedding_func=EmbeddingFunc(
-            embedding_dim=EMBEDDING_DIM,
-            max_token_size=MAX_EMBED_TOKENS,
-            func=provider.embed,
-        ),
-    )
+    if use_full_rag:
+        state.rag = RAGAnything(
+            config=config,
+            lightrag=lightrag_instance,
+            llm_model_func=provider.llm,
+            vision_model_func=provider.vision if VISION_MODEL else None,
+            embedding_func=EmbeddingFunc(
+                embedding_dim=EMBEDDING_DIM,
+                max_token_size=MAX_EMBED_TOKENS,
+                func=provider.embed,
+            ),
+        )
 
-    base_logger.info("Preloading reranker...")
-    document_reranker.load()
-    base_logger.info("Starting queue worker...")
-    asyncio.create_task(_queue_worker())
-    base_logger.info("RAGAnything ready.")
-    neo4j_manager.connect()
+        base_logger.info("Preloading reranker...")
+        document_reranker.load()
+        base_logger.info("Starting queue worker...")
+        asyncio.create_task(_queue_worker())
+    else:
+        # Lite mode: expose LightRAG directly (query + text ingestion still work)
+        state.rag = lightrag_instance
+
+    base_logger.info("RAG engine ready.")
     yield
     await neo4j_manager.close()
 

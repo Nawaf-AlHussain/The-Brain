@@ -90,6 +90,12 @@ All knowledge graph data is stored in two named volumes
 | thebrain_data       | vector DBs, upload history, parsed output |
 | lightrag_neo4j_data | Neo4j graph                               |
 
+## Deploy on Vercel (serverless)
+
+The repository ships a serverless-ready configuration (`vercel.json`, `api/index.py`, slim `requirements.txt`). On Vercel the app runs in **lite mode**: dashboard, 3D graph explorer, RAG queries and text ingestion (`.txt`/`.md`/…) work via cloud services (Neo4j Aura + any OpenAI-compatible API). PDF/DOCX parsing via MinerU requires the Docker deployment below.
+
+See [VERCEL_DEPLOY.md](./VERCEL_DEPLOY.md) for the full guide and the list of AI APIs required.
+
 ## Quick Start
 
 ### Prerequisites

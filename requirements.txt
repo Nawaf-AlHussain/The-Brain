@@ -1,17 +1,22 @@
-# RAG-Anything + LightRAG core
-raganything[all]
-lightrag-hku
+# Lightweight dependency set — used by Vercel/serverless builds.
+# (MinerU/RAG-Anything and the local reranker model exceed serverless size limits.)
+#
+# For the full feature set (PDF/DOCX parsing via MinerU, local reranker),
+# use requirements-full.txt — see Dockerfile.thebrain.
 
 # FastAPI server
 fastapi
-uvicorn[standard]
+uvicorn
 python-multipart
 
-# Async HTTP client (for Ollama)
+# HTTP client (LLM providers, external reranker)
 httpx
 
-# Neo4j
-neo4j
+# Numeric arrays (llm_providers.py)
+numpy
 
-# Rerank
-sentence-transformers>=3.0.0
+# RAG core (LightRAG)
+lightrag-hku
+
+# Knowledge graph DB
+neo4j

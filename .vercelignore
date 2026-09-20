@@ -1,0 +1,13 @@
+# Files excluded from the Vercel build upload.
+# Keep this list tight: everything not ignored is bundled into the
+# serverless function (250 MB limit).
+
+.git
+.github
+assets
+compose.yml
+Dockerfile.thebrain
+requirements-full.txt
+.env
+.env.*
+vercel.json.local

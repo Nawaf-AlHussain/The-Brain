@@ -16,11 +16,11 @@ WORKDIR /app
 
 # Install Python dependencies
 # MinerU (magic-pdf) is RAG-Anything's document parser
-COPY requirements.txt .
+COPY requirements.txt requirements-full.txt ./
 COPY frontend ./frontend
 COPY backend ./backend
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements-full.txt
 
 # Copy application code
 COPY app.py .

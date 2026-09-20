@@ -1,9 +1,15 @@
 import logging
 import asyncio
 import httpx
-from sentence_transformers import CrossEncoder
 
 _logger = logging.getLogger(__name__)
+
+try:
+    from sentence_transformers import CrossEncoder
+    _ST_AVAILABLE = True
+except ImportError:  # lightweight/serverless builds do not ship torch
+    CrossEncoder = None
+    _ST_AVAILABLE = False
 
 
 class DocumentReranker:
@@ -24,6 +30,14 @@ class DocumentReranker:
         """Preloads the local model into memory if we are NOT using an external API."""
         if self.base_url:
             return None  # Skip loading on CPU if an external URL is provided
+
+        if not _ST_AVAILABLE:
+            _logger.warning(
+                "sentence-transformers is not installed and RERANKER_BASE_URL is "
+                "not set — reranking will fall back to original retrieval order. "
+                "Set RERANKER_BASE_URL (e.g. https://api.siliconflow.com/v1) to enable real reranking."
+            )
+            return None
 
         if self._reranker is None:
             _logger.info(f"Loading local CPU reranker {self.model_name} ...")
@@ -66,7 +80,16 @@ class DocumentReranker:
                     return results
                 return []
 
-        # Local routing
+        # Local routing (falls back to retrieval order when the model is unavailable)
+        if not _ST_AVAILABLE:
+            _logger.warning(
+                "[rerank-skipped] Local model unavailable and no RERANKER_BASE_URL set — "
+                "returning original order"
+            )
+            return [
+                {"index": i, "relevance_score": 0.0} for i in range(min(top_n, len(documents)))
+            ]
+
         loop = asyncio.get_running_loop()
         pairs = [[query, doc] for doc in documents]
 

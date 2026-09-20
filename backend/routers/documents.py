@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import asyncio
 from pathlib import Path
 from typing import AsyncGenerator
@@ -7,9 +8,20 @@ from fastapi import APIRouter, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.dependencies import job_manager, state
-from backend.config import UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES
+from backend.runtime import RAGANYTHING_AVAILABLE
+from backend.config import (
+    UPLOAD_DIR,
+    ALLOWED_EXTENSIONS,
+    TEXT_ONLY_EXTENSIONS,
+    MAX_UPLOAD_BYTES,
+    IS_SERVERLESS,
+)
 
 router = APIRouter(tags=["Documents & Queue"])
+
+# Lite mode (serverless): no MinerU parser available — only plain-text files
+# can be inserted directly into LightRAG. Full parsing requires Docker mode.
+LITE_MODE = IS_SERVERLESS or not RAGANYTHING_AVAILABLE
 
 
 @router.get("/uploads")
@@ -51,29 +63,66 @@ def resume_queue():
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     if state.rag is None:
-        raise HTTPException(status_code=503, detail="RAGAnything not initialised yet")
+        raise HTTPException(status_code=503, detail="RAG engine not initialised yet")
     if not file.filename:
         raise HTTPException(status_code=400, detail="File must have a filename")
 
     safe_filename = re.sub(r"[^A-Za-z0-9_.-]", "_", file.filename)
-    if Path(file.filename).suffix.lower() not in ALLOWED_EXTENSIONS:
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="File type not supported")
+
+    if LITE_MODE and suffix not in TEXT_ONLY_EXTENSIONS:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Serverless mode has no MinerU parser: only plain-text files "
+                "(.txt, .md, .html, .json, .csv) can be ingested here. "
+                "Deploy with Docker to parse PDF/DOCX/PPTX documents."
+            ),
+        )
 
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail="File too large (max 500 MB)")
+        limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=400, detail=f"File too large (max {limit_mb} MB)"
+        )
 
-    dest = Path(UPLOAD_DIR) / file.filename
+    dest = Path(UPLOAD_DIR) / safe_filename
     with dest.open("wb") as fh:
         fh.write(content)
 
-    job = job_manager.new_job(file.filename)
-    job.push("queued", f"File received: {file.filename}")
+    if LITE_MODE:
+        # Direct insertion — chunking + entity extraction happen inline.
+        # Must complete within the serverless function timeout.
+        job = job_manager.new_job(safe_filename)
+        job.status = "parsing"
+        job.push("status", f"Inserting {safe_filename} into the knowledge graph …")
+        try:
+            text = dest.read_text(encoding="utf-8", errors="ignore")
+            await state.rag.ainsert(text, file_paths=[safe_filename])
+            job.status = "done"
+            job.finished_at = time.time()
+            job.push("done", f"✓ Inserted {safe_filename} into the knowledge graph")
+            job_manager.save_completed(safe_filename, 0, 0, 0, job.finished_at)
+        except Exception as exc:
+            job.status = "error"
+            job.error = str(exc)
+            job.push("error", f"✗ {exc}")
+        return {
+            "job_id": job.id,
+            "filename": safe_filename,
+            "queue_position": 0,
+        }
+
+    job = job_manager.new_job(safe_filename)
+    job.push("queued", f"File received: {safe_filename}")
     job_manager.processing_queue.append((job, str(dest)))
 
     return {
         "job_id": job.id,
-        "filename": file.filename,
+        "filename": safe_filename,
         "queue_position": len(job_manager.processing_queue),
     }
 

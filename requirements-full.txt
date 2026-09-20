@@ -1,0 +1,10 @@
+# Full feature set for Docker / self-hosted deployment (used by Dockerfile.thebrain).
+# Includes RAG-Anything + MinerU (PDF/DOCX/PPTX parsing) and the local reranker.
+
+-r requirements.txt
+
+# RAG-Anything core + MinerU document parser
+raganything[all]
+
+# Local reranker (BAAI/bge-reranker-v2-m3 loaded into memory at startup)
+sentence-transformers>=3.0.0

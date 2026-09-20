@@ -51,7 +51,13 @@ async def query(req: QueryRequest):
             logging.getLogger(name).addHandler(capture)
 
     try:
-        answer = await state.rag.aquery(req.question, mode=req.mode, vlm_enhanced=False)
+        # RAGAnything.aquery accepts vlm_enhanced; plain LightRAG does not.
+        if type(state.rag).__name__ == "RAGAnything":
+            answer = await state.rag.aquery(
+                req.question, mode=req.mode, vlm_enhanced=False
+            )
+        else:
+            answer = await state.rag.aquery(req.question, mode=req.mode)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
