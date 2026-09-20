@@ -2,6 +2,7 @@ import logging
 import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from lightrag import QueryParam
 from backend.dependencies import neo4j_manager, state
 
 # Create the router instance
@@ -106,13 +107,16 @@ async def query(req: QueryRequest):
             logging.getLogger(name).addHandler(capture)
 
     try:
-        # RAGAnything.aquery accepts vlm_enhanced; plain LightRAG does not.
+        # RAGAnything.aquery accepts vlm_enhanced; plain LightRAG takes a
+        # QueryParam object (mode is a QueryParam field, not a kwarg).
         if type(state.rag).__name__ == "RAGAnything":
             answer = await state.rag.aquery(
                 req.question, mode=req.mode, vlm_enhanced=False
             )
         else:
-            answer = await state.rag.aquery(req.question, mode=req.mode)
+            answer = await state.rag.aquery(
+                req.question, param=QueryParam(mode=req.mode)
+            )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
