@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
@@ -11,6 +12,8 @@ from backend.config import (
     EMBEDDING_MODEL,
     HIDDEN_TYPES_FILE,
     CONV_FILE,
+    OPENAI_BASE_URL,
+    OPENAI_API_KEY,
 )
 
 router = APIRouter(tags=["System & Stats"])
@@ -24,6 +27,23 @@ def health():
         "llm_model": LLM_MODEL,
         "embedding_model": EMBEDDING_MODEL,
     }
+
+
+@router.get("/models")
+async def list_models():
+    """Diagnostics: list models available at the configured OpenAI-compatible provider."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{OPENAI_BASE_URL.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            ids = sorted(m.get("id") for m in data.get("data", []) if m.get("id"))
+            return {"provider": OPENAI_BASE_URL, "count": len(ids), "models": ids}
+    except Exception as exc:
+        return {"provider": OPENAI_BASE_URL, "error": str(exc)}
 
 
 @router.get("/stats")
