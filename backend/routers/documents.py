@@ -102,10 +102,33 @@ async def upload_document(file: UploadFile = File(...)):
         try:
             text = dest.read_text(encoding="utf-8", errors="ignore")
             await state.rag.ainsert(text, file_paths=[safe_filename])
-            job.status = "done"
-            job.finished_at = time.time()
-            job.push("done", f"✓ Inserted {safe_filename} into the knowledge graph")
-            job_manager.save_completed(safe_filename, 0, 0, 0, job.finished_at)
+
+            # LightRAG >=1.5 swallows per-chunk extraction failures into
+            # pipeline_status instead of raising — surface them here.
+            pipeline_error = ""
+            try:
+                from lightrag.kg.shared_storage import get_namespace_data
+
+                ps = await get_namespace_data("pipeline_status", workspace=state.rag.workspace)
+                for msg in list(ps.get("history_messages", []))[-6:]:
+                    if msg and not msg.startswith("Traceback"):
+                        job.push("log", str(msg)[:200])
+                    if "Failed" in msg or "ERROR" in msg or "failed" in msg:
+                        pipeline_error = str(msg)[:200]
+                docs = ps.get("docs", 0)
+                job.push("log", f"Pipeline processed {docs} document(s)")
+            except Exception:
+                pass
+
+            if pipeline_error:
+                job.status = "error"
+                job.error = pipeline_error
+                job.push("error", f"✗ Insertion pipeline reported: {pipeline_error}")
+            else:
+                job.status = "done"
+                job.finished_at = time.time()
+                job.push("done", f"✓ Inserted {safe_filename} into the knowledge graph")
+                job_manager.save_completed(safe_filename, 0, 0, 0, job.finished_at)
         except Exception as exc:
             job.status = "error"
             job.error = str(exc)
