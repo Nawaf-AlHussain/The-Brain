@@ -90,7 +90,19 @@ CONV_FILE = Path(WORKING_DIR) / "conversations.json"
 COMPLETED_LOG = Path(WORKING_DIR) / "completed_docs.json"
 
 # Document settings
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".pptx", ".xlsx"}
+# Union with TEXT_ONLY_EXTENSIONS so lite mode can actually ingest every type
+# its 503 message advertises (.txt/.md/.html/.json/.csv) — previously .html,
+# .json and .csv were rejected by the ALLOWED_EXTENSIONS gate before the
+# lite-mode branch was reached.
+ALLOWED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".txt",
+    ".md",
+    ".pptx",
+    ".xlsx",
+} | TEXT_ONLY_EXTENSIONS
 # Serverless platforms cap request bodies (Vercel: ~4.5 MB) — default lower there
 if os.getenv("MAX_UPLOAD_BYTES"):
     MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES"))

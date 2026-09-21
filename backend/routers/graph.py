@@ -39,7 +39,10 @@ async def _graph_from_lightrag(search: str = "", limit: int = 300) -> dict:
     Used in demo mode (no Neo4j configured) where the graph lives in
     LightRAG's NetworkX storage instead of Neo4j.
     """
-    rag = state.rag
+    # In lite mode state.rag IS the LightRAG instance; in full mode it is a
+    # RAGAnything wrapper, which does not forward attribute access to its
+    # inner .lightrag — unwrap it so the graph storage is always reachable.
+    rag = getattr(state.rag, "lightrag", state.rag)
     storage = getattr(rag, "chunk_entity_relation_graph", None)
     if storage is None:
         return {"nodes": [], "links": []}
